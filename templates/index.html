@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>高度シフト表生成アプリ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* プレビューテーブルのスクロール対応とフォント調整 */
+        .table-responsive {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        table {
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <h1 class="mb-4">シフト表生成アプリ (プレビュー＆保存機能付き)</h1>
+        
+        <div id="alert-container"></div>
+
+        <div class="row">
+            <div class="col-md-5">
+                <form id="shift-form" method="POST" class="card p-4 shadow-sm mb-4">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">シフト開始日 (YYYY-MM-DD)</label>
+                        <input type="date" id="start_date" name="start_date" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">日数</label>
+                        <input type="number" id="num_days" name="num_days" class="form-control" value="30" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">祝日 (YYYY-MM-DD, カンマ区切り)</label>
+                        <input type="text" id="holidays" name="holidays" class="form-control" placeholder="例: 2026-01-01, 2026-01-12">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">希望休 (社員,日付; セミコロン区切り)</label>
+                        <input type="text" id="hope_holidays" name="hope_holidays" class="form-control" placeholder="例: A,5; B,12">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">社員リスト (セミコロン区切り)</label>
+                        <textarea id="employees" name="employees" class="form-control" rows="4">{{ default_caps }}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">社員別休日数 (セミコロン区切り)</label>
+                        <textarea id="holiday_requirements" name="holiday_requirements" class="form-control" rows="3">{{ default_reqs }}</textarea>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="button" id="btn-preview" class="btn btn-primary id-flex-fill w-100">① シフト表をプレビュー</button>
+                        <button type="button" id="btn-download" class="btn btn-success d-none w-100">② Excelダウンロード</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="col-md-7">
+                <div class="card p-4 shadow-sm" style="min-height: 600px;">
+                    <h3 class="card-title h5 mb-3 text-secondary">シフト表プレビュー</h3>
+                    <div id="preview-area" class="table-responsive text-muted text-center pt-5">
+                        <p>左側のフォームに入力し、「① シフト表をプレビュー」ボタンを押してください。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const formIds = ['start_date', 'num_days', 'holidays', 'hope_holidays', 'employees', 'holiday_requirements'];
+
+        // 【機能3】画面ロード時：LocalStorageからデータを読み込む
+        window.addEventListener('DOMContentLoaded', () => {
+            formIds.forEach(id => {
+                const savedValue = localStorage.getItem('shift_app_' + id);
+                if (savedValue !== null) {
+                    document.getElementById(id).value = savedValue;
+                }
+            });
+        });
+
+        // 入力値が変更されたらLocalStorageに自動保存する
+        formIds.forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                localStorage.setItem('shift_app_' + id, document.getElementById(id).value);
+            });
+        });
+
+        // アラート（警告）を表示する共通関数
+        function showAlert(message, type = 'danger') {
+            const container = document.getElementById('alert-container');
+            container.innerHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+        }
+
+        // 【機能1 & 2】①プレビューボタンの非同期通信処理
+        document.getElementById('btn-preview').addEventListener('click', async () => {
+            const form = document.getElementById('shift-form');
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            const formData = new FormData(form);
+            const previewArea = document.getElementById('preview-area');
+            const downloadBtn = document.getElementById('btn-download');
+            
+            previewArea.innerHTML = '<div class="text-center pt-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">シフトを計算中...</p></div>';
+            document.getElementById('alert-container').innerHTML = ''; // アラートをクリア
+
+            try {
+                const response = await fetch('/preview', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    // プレビュー表示
+                    previewArea.innerHTML = data.html_table;
+                    downloadBtn.classList.remove('d-none'); // Excelダウンロードボタンを表示
+
+                    // 【機能2】条件が厳しく「NG」が発生していた場合のアラート通知
+                    if (data.has_ng) {
+                        showAlert('【警告】条件が厳しいため、一部の日程で必要人数やスキルを満たせませんでした（表内の「NG」をご確認ください）。', 'warning');
+                    } else {
+                        showAlert('シフト表の生成に成功しました！エラー（NG）はありません。', 'success');
+                    }
+                } else {
+                    showAlert('シフト生成中にエラーが発生しました: ' + data.error);
+                    previewArea.innerHTML = '<p class="text-danger">エラーのためプレビューを表示できません。</p>';
+                }
+            } catch (error) {
+                showAlert('サーバーとの通信に失敗しました。');
+                previewArea.innerHTML = '<p class="text-danger">通信エラーが発生しました。</p>';
+            }
+        });
+
+        // ②Excelダウンロードボタンの処理
+        document.getElementById('btn-download').addEventListener('click', () => {
+            const form = document.getElementById('shift-form');
+            form.action = '/download';
+            form.submit();
+        });
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
