@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, send_file, jsonify # pyright: ignore[reportMissingImports]
 import pandas as pd
+import openpyxl
 
 
 app = Flask(__name__)
