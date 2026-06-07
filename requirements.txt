@@ -14,3 +14,4 @@ pytz==2026.2
 six==1.17.0
 Werkzeug==3.1.8
 zope.interface==8.5
+openpyxl==3.1.5
